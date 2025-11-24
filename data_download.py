@@ -21,50 +21,7 @@ models = [
     "UKESM1-0-LL",
 ]
 
-parser = argparse.ArgumentParser()
-parser.add_argument("out_path")
-parser.add_argument(
-    "--from-year", type=int, required=True, help="Download data starting from year"
-)
-parser.add_argument(
-    "--to-year",
-    type=int,
-    required=True,
-    help="Download data to this year (included)",
-)
-parser.add_argument(
-    "--mode",
-    required=True,
-    choices=modes,
-    default=modes,
-    help="Historical or future data. Valid options are 'hist' and 'future'",
-)
-parser.add_argument(
-    "--variable",
-    nargs="+",
-    default=variables,
-    help=f"Variables to download. Valid options are {', '.join(variables)}. Default is everything.",
-)
-parser.add_argument(
-    "--scenario",
-    nargs="+",
-    required=False,
-    default=["default"],
-    help="Scenarios to download. Valid options are 'ssp126', 'ssp370' and 'default'. Leave empty or 'default' for historical data.",
-)
-parser.add_argument(
-    "--model",
-    nargs="+",
-    default=models,
-    help=f"Download data from these models. Valid options are {', '.join(models)}. Default is everything.",
-)
-parser.add_argument(
-    "--dry-run", action="store_true", help="Create empty files instead of downloading"
-)
-args = parser.parse_args()
 
-ds_root_dir = Path(args.out_path)
-ds_root_dir.mkdir(exist_ok=True)
 
 
 def request_payload(
@@ -134,7 +91,8 @@ def make_scenarios(proposed_scenarios: list[str | None], mode: str):
         return proposed_scenarios
 
 
-def outname(mode, model, variable, scenario, years: list[int]):
+
+def outname(ds_root_dir: Path, mode: str, model: str, variable: str, scenario: str | None, years: list[int]):
     if scenario:
         return (
             ds_root_dir
@@ -154,15 +112,7 @@ def outname(mode, model, variable, scenario, years: list[int]):
         )
 
 
-c = ddsapi.Client()
-
-dataset = "cmip6-stat-downscaled-over-italy"
-
-logging.basicConfig(filename="download.log", force=True)
-logger = logging.getLogger(__name__)
-
-
-def valid_combo(mode, model, variable, scenario):
+def valid_combo(mode: str, model: str, variable: str, scenario: str | None) -> bool:
     compatible_var = (
         model in models_var_assocs and variable in models_var_assocs[model][mode]
     )
@@ -172,7 +122,7 @@ def valid_combo(mode, model, variable, scenario):
     ) and compatible_var
 
 
-def valid_year(year: int, mode: str):
+def valid_year(year: int, mode: str) -> bool:
     if mode == "hist":
         return 1985 <= year <= 2014
     elif mode == "future":
@@ -181,39 +131,104 @@ def valid_year(year: int, mode: str):
         raise Exception(f"Invalid mode: {mode}")
 
 
-stack = [
-    (args.mode, model, variable, scenario, [year])
-    for scenario in make_scenarios(args.scenario, args.mode)
-    for model in args.model
-    for variable in args.variable
-    for year in range(args.from_year, args.to_year + 1)
-    if valid_combo(args.mode, model, variable, scenario)
-    and valid_year(year, args.mode)
-    and not outname(args.mode, model, variable, scenario, [year]).exists()
-]
+def build_argparser():
+    parser = argparse.ArgumentParser()
+    _ = parser.add_argument("out_path")
+    _ = parser.add_argument(
+        "--from-year", type=int, required=True, help="Download data starting from year"
+    )
+    _ = parser.add_argument(
+        "--to-year",
+        type=int,
+        required=True,
+        help="Download data up to this year (included)",
+    )
+    _ = parser.add_argument(
+        "--mode",
+        required=True,
+        choices=modes,
+        default=modes,
+        help="Historical or future data. Valid options are 'hist' and 'future'.",
+    )
+    _ = parser.add_argument(
+        "--variable",
+        nargs="+",
+        default=variables,
+        help=f"Variables to download. Valid options are {', '.join(variables)}. Default is everything.",
+    )
+    _ = parser.add_argument(
+        "--scenario",
+        nargs="+",
+        required=False,
+        default=["default"],
+        help="Scenarios to download. Valid options are 'ssp126', 'ssp370' and 'default'. Leave empty or 'default' for historical data.",
+    )
+    _ = parser.add_argument(
+        "--model",
+        nargs="+",
+        default=models,
+        help=f"Download data from these models. Valid options are {', '.join(models)}. Default is everything.",
+    )
+    _ = parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Create empty files instead of downloading",
+    )
+    return parser
 
-for mode, model, variable, scenario, years in tqdm(stack):
-    variable_name = cdd_varname(variable)
-    payload = request_payload(model, variable, scenario, years)
-    fname = outname(mode, model, variable, scenario, years)
-    fname.parent.mkdir(exist_ok=True, parents=True)
-    try:
-        # logger.info(f"Trying {model}, {variable}, {scenario}, {years}")
+
+def main():
+    parser = build_argparser()
+    args = parser.parse_args()
+
+    ds_root_dir = Path(args.out_path)
+    ds_root_dir.mkdir(exist_ok=True)
+
+    c = ddsapi.Client()
+    dataset = "cmip6-stat-downscaled-over-italy"
+
+    logging.basicConfig(filename="download.log", force=True)
+    logger = logging.getLogger(__name__)
+
+    stack = [
+        (str(args.mode), model, variable, scenario, [year])
+        for scenario in make_scenarios(args.scenario, args.mode)
+        for model in args.model
+        for variable in args.variable
+        for year in range(args.from_year, args.to_year + 1)
+        if valid_combo(args.mode, model, variable, scenario)
+        and valid_year(year, args.mode)
+        and not outname(
+            ds_root_dir, args.mode, model, variable, scenario, [year]
+        ).exists()
+    ]
+
+    for mode, model, variable, scenario, years in tqdm(stack):
+        variable_name = cdd_varname(variable)
         payload = request_payload(model, variable, scenario, years)
-        start = monotonic_ns()
-        if args.dry_run:
-            fname.touch()
-        else:
-            c.retrieve(dataset, cdd_variant(variable, mode), payload, str(fname))
-        delta_time = (monotonic_ns() - start) // 1e9
-        logger.info(
-            f"Downloaded data for years: {years}, model: {model}, scenario: {scenario}, variable: {variable_name} to {fname} in {delta_time}s"
-        )
-    except Exception as e:
-        logger.error(
-            f"Failed to download data for year: {years}, model: {model}, scenario: {scenario}, variable: {variable_name}; got: {e}"
-        )
-        if fname.exists():
-            fname.unlink()
-            logger.info(f"{fname} was deleted")
-        sleep(5)
+        fname = outname(ds_root_dir, mode, model, variable, scenario, years)
+        fname.parent.mkdir(exist_ok=True, parents=True)
+        try:
+            # logger.info(f"Trying {model}, {variable}, {scenario}, {years}")
+            payload = request_payload(model, variable, scenario, years)
+            start = monotonic_ns()
+            if args.dry_run:
+                fname.touch()
+            else:
+                _ = c.retrieve(dataset, cdd_variant(variable, mode), payload, str(fname))  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
+            delta_time = (monotonic_ns() - start) // 1e9
+            logger.info(
+                f"Downloaded data for years: {years}, model: {model}, scenario: {scenario}, variable: {variable_name} to {fname} in {delta_time}s"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to download data for year: {years}, model: {model}, scenario: {scenario}, variable: {variable_name}; got: {e}"
+            )
+            if fname.exists():
+                fname.unlink()
+                logger.info(f"{fname} was deleted")
+            sleep(5)
+
+
+if __name__ == "__main__":
+    main()
