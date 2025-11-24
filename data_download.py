@@ -21,9 +21,6 @@ models = [
     "UKESM1-0-LL",
 ]
 
-
-
-
 def request_payload(
     model: str, variable: str, scenario: str | None, years: list[int] | list[str]
 ):
@@ -50,7 +47,7 @@ def request_payload(
 variants = {mode: [f"{var}-{mode}" for var in variables] for mode in modes}
 models_var_assocs = {
     "CESM2": {
-        "hist": ["hurs", "pr", "sfcWind", "tas"],
+        "hist": ["pr", "sfcWind", "tas"],
         "future": ["pr", "sfcWind", "tas"],
     },
     "CMCC-CM2-SR5": {
@@ -58,7 +55,7 @@ models_var_assocs = {
         "future": ["hurs", "pr", "sfcWind", "tas"],
     },
     "CNRM-ESM2-1": {
-        "hist": variables,
+        "hist": ["hurs", "pr", "tas", "tasmax", "tasmin"],
         "future": ["hurs", "pr", "tas", "tasmax", "tasmin"],
     },
     "EC-Earth3-Veg": {
@@ -212,9 +209,7 @@ def main():
             # logger.info(f"Trying {model}, {variable}, {scenario}, {years}")
             payload = request_payload(model, variable, scenario, years)
             start = monotonic_ns()
-            if args.dry_run:
-                fname.touch()
-            else:
+            if not args.dry_run:
                 _ = c.retrieve(dataset, cdd_variant(variable, mode), payload, str(fname))  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
             delta_time = (monotonic_ns() - start) // 1e9
             logger.info(
