@@ -184,7 +184,7 @@ def main():
     c = ddsapi.Client()
     dataset = "cmip6-stat-downscaled-over-italy"
 
-    logging.basicConfig(filename="download.log", force=True)
+    logging.basicConfig(filename="download.log", format="%(asctime)s - %(levelname)s - %(message)s", force=True)
     logger = logging.getLogger(__name__)
 
     stack = [
