@@ -2,3 +2,8 @@
 .vscode
 .venv
 uv.lock
+extraction_test/
+fields_data/
+*.geojson
+*.json
+*.parquet
