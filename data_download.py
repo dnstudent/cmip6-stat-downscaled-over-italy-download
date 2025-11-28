@@ -171,6 +171,12 @@ def build_argparser():
         action="store_true",
         help="Create empty files instead of downloading",
     )
+    _ = parser.add_argument(
+        "--scan-dirs",
+        nargs="+",
+        default=[],
+        help="Additional directories to scan for existing files.",
+    )
     return parser
 
 
@@ -180,6 +186,8 @@ def main():
 
     ds_root_dir = Path(args.out_path)
     ds_root_dir.mkdir(exist_ok=True)
+
+    scan_dirs = [ds_root_dir] + [Path(d) for d in args.scan_dirs]
 
     c = ddsapi.Client()
     dataset = "cmip6-stat-downscaled-over-italy"
@@ -195,9 +203,10 @@ def main():
         for year in range(args.from_year, args.to_year + 1)
         if valid_combo(args.mode, model, variable, scenario)
         and valid_year(year, args.mode)
-        and not outname(
-            ds_root_dir, args.mode, model, variable, scenario, [year]
-        ).exists()
+        and not any(
+            outname(d, args.mode, model, variable, scenario, [year]).exists()
+            for d in scan_dirs
+        )
     ]
 
     for mode, model, variable, scenario, years in tqdm(stack):
